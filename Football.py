@@ -15,8 +15,9 @@ st.set_page_config(
 
 # --- CHARGER LA CLE API
 secrets_path = Path.home() / ".streamlit" / "secrets.toml"
-secrets = toml.load(secrets_path)
-openai.api_key = secrets["openai"]["api_key"]
+"""secrets = toml.load(secrets_path)
+openai.api_key = secrets["openai"]["api_key"]"""
+openai.api_key = st.secrets["openai"]["api_key"]
 
 # --- DICTIONNAIRE DES SYNONYMES DE COLONNES
 COLUMN_SYNONYMS = {
