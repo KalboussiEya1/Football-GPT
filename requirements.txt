@@ -3,3 +3,4 @@ pandas
 openai
 toml
 xlsxwriter
+openpyxl
