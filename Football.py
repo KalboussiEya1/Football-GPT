@@ -1,11 +1,10 @@
 import streamlit as st
 import pandas as pd
-import openai
-import toml
 import re
 import json
-from pathlib import Path
 from io import BytesIO
+from pathlib import Path
+from openai import OpenAI
 
 # --- CONFIGURATION DE LA PAGE
 st.set_page_config(
@@ -13,10 +12,8 @@ st.set_page_config(
     page_title="Recrutement des joueurs de football avec IA"
 )
 
-# --- CHARGER LA CLE API
-secrets_path = Path.home() / ".streamlit" / "secrets.toml"
-
-openai.api_key = st.secrets["openai"]["api_key"]
+# --- CRÉER LE CLIENT OPENAI
+client = OpenAI(api_key=st.secrets["openai"]["api_key"])
 
 # --- DICTIONNAIRE DES SYNONYMES DE COLONNES
 COLUMN_SYNONYMS = {
@@ -103,7 +100,7 @@ if uploaded_file:
         return text
 
     def get_conditions(query):
-        response = openai.ChatCompletion.create(
+        response = client.chat.completions.create(
             model="gpt-4o",
             messages=[
                 {"role": "system", "content": PROMPT_TEMPLATE},
@@ -111,7 +108,6 @@ if uploaded_file:
             ]
         )
         content = response.choices[0].message.content
-        # Ligne supprimée: on n'affiche plus la réponse brute
         json_str = extract_json_from_response(content)
         try:
             parsed = json.loads(json_str)
@@ -182,7 +178,7 @@ if uploaded_file:
             output = BytesIO()
             with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
                 filtered.to_excel(writer, index=False, sheet_name='Joueurs_Filtrés')
-                
+
             output.seek(0)
 
             st.download_button(
@@ -193,4 +189,3 @@ if uploaded_file:
             )
 else:
     st.info("Veuillez importer un fichier Excel pour commencer.")
-
