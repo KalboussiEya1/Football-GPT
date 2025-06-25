@@ -4,140 +4,142 @@ import re
 import json
 from io import BytesIO
 from openai import OpenAI
-from fuzzywuzzy import process
+from rapidfuzz import process, fuzz
 
-# --- CONFIG
-st.set_page_config(layout="wide", page_title="Sélection intelligente des Joueurs")
+# --- CONFIGURATION DE LA PAGE
+st.set_page_config(
+    layout="wide",
+    page_title="Filtrage intelligent des données Excel avec IA"
+)
 
-# --- OPENAI CLIENT
+# --- CRÉER LE CLIENT OPENAI
 client = OpenAI(api_key=st.secrets["openai"]["api_key"])
 
-# --- TITRE
-st.title("Sélection intelligente des Joueurs")
+# --- INTERFACE
+st.title("Analyse intelligente de vos données Excel")
 
-# --- FICHIER UPLOAD
-uploaded_file = st.file_uploader("Importer un fichier Excel", type=["xlsx"])
+uploaded_file = st.file_uploader("1 - Importer votre fichier Excel", type=["xlsx"])
 
+
+# --- UTILITAIRES
+def extract_json_from_response(text):
+    pattern = r"```(?:json)?\s*(\{.*?\})\s*```"
+    match = re.search(pattern, text, re.DOTALL)
+    if match:
+        return match.group(1)
+    return text
+
+
+def get_best_match(input_col, columns, threshold=80):
+    match = process.extractOne(input_col, columns, scorer=fuzz.ratio)
+    if match and match[1] >= threshold:
+        return match[0]
+    return None
+
+
+def get_best_value_match(value, possible_values, threshold=80):
+    match = process.extractOne(str(value), list(map(str, possible_values)), scorer=fuzz.ratio)
+    if match and match[1] >= threshold:
+        return match[0]
+    return value
+
+
+def apply_filters(df, conditions):
+    df_filtered = df.copy()
+    colnames = list(df.columns)
+
+    for col, op, val in conditions:
+        # Correspondance du nom de colonne
+        col_matched = next((c for c in colnames if c.lower().strip() == col.lower().strip()), None)
+        if not col_matched:
+            col_matched = get_best_match(col, colnames)
+
+        if not col_matched:
+            st.warning(f"Colonne inconnue : {col}")
+            continue
+
+        try:
+            # Correction de la valeur si applicable
+            if op.lower() in ["==", "!=", "contient"] and df_filtered[col_matched].dtype == object:
+                unique_vals = df_filtered[col_matched].dropna().unique()
+                corrected_val = get_best_value_match(val, unique_vals)
+                if corrected_val != val:
+                    st.info(f"Correction de la valeur : '{val}' → '{corrected_val}'")
+                    val = corrected_val
+
+            if op in [">", "<", ">=", "<=", "==", "!="]:
+                df_filtered = df_filtered.query(f"`{col_matched}` {op} @val")
+            elif op.lower() == "contient":
+                df_filtered = df_filtered[df_filtered[col_matched].astype(str).str.contains(str(val), case=False, na=False)]
+            else:
+                st.warning(f"Opérateur inconnu : {op}")
+        except Exception as e:
+            st.warning(f"Erreur lors du filtrage sur '{col_matched}' : {e}")
+
+    return df_filtered
+
+
+# --- TRAITEMENT PRINCIPAL
 if uploaded_file:
-    df = pd.read_excel(uploaded_file, engine="openpyxl")
+    df = pd.read_excel(uploaded_file)
+    st.success(f"Données chargées : {df.shape[0]} lignes | {df.shape[1]} colonnes")
 
-    # --- POSITION NORMALIZATION
-    def get_best_match(value, choices, threshold=80):
-        if not isinstance(value, str):
-            return value
-        match, score = process.extractOne(value.strip(), choices)
-        return match if score >= threshold else value
+    PROMPT_TEMPLATE = f"""
+    Tu es un assistant qui extrait des conditions de filtrage pour une base de données Excel.
+    Voici les colonnes disponibles : {list(df.columns)}.
+    L'utilisateur va poser une requête en langage naturel pour filtrer ces données.
+    La requête peut contenir plusieurs conditions numériques ou de texte.
 
-    def normalize_position(value):
-        if not isinstance(value, str):
-            return value
-        return get_best_match(value.strip(), [str(v).strip() for v in df['Position'].unique()])
-
-    # --- PROMPT
-    PROMPT_TEMPLATE = """
-    Tu es un assistant qui extrait des conditions de filtrage à partir d'une requête utilisateur.
-    Colonnes disponibles : {columns}
-    Valeurs exactes pour la colonne 'Position' : {position_values}
-
-    Réponds uniquement en JSON :
+    Réponds uniquement sous forme JSON pur, sans balises Markdown :
     {{
-      "conditions": [
-        ["colonne", "opérateur", "valeur"]
-      ]
+      "conditions": [ ["nom_colonne", "opérateur", valeur] ]
     }}
     """
 
-    def extract_json_from_response(text):
-        match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
-        return match.group(1) if match else text
+    st.markdown("2 - Posez votre requête en langage naturel")
+    query = st.text_input("", label_visibility="collapsed")
 
     def get_conditions(query):
-        position_values = df['Position'].unique().tolist() if 'Position' in df.columns else []
-        prompt = PROMPT_TEMPLATE.format(
-            columns=list(df.columns),
-            position_values=position_values
-        )
-
         response = client.chat.completions.create(
-            model="gpt-4",
+            model="gpt-4o",
             messages=[
-                {"role": "system", "content": prompt},
+                {"role": "system", "content": PROMPT_TEMPLATE},
                 {"role": "user", "content": query}
-            ],
-            temperature=0.1
+            ]
         )
-
         content = response.choices[0].message.content
         json_str = extract_json_from_response(content)
-
         try:
-            return json.loads(json_str).get("conditions", [])
+            parsed = json.loads(json_str)
+            return parsed.get("conditions", [])
         except Exception as e:
-            st.error(f"Erreur JSON: {e}\nRéponse brute: {content}")
+            st.error(f"Erreur JSON GPT : {e}")
+            st.json(content)
             return []
 
-    def apply_filters(df, conditions):
-        df_filtered = df.copy()
-
-        for col, op, val in conditions:
-            if col not in df.columns:
-                continue
-
-            op = op.replace("&gt;", ">").replace("&lt;", "<").replace("&ge;", ">=").replace("&le;", "<=")
-
-            if col.lower() == 'position':
-                val = normalize_position(val)
-
-            try:
-                series = df_filtered[col]
-
-                if op == ">":
-                    df_filtered = df_filtered[series > float(val)]
-                elif op == "<":
-                    df_filtered = df_filtered[series < float(val)]
-                elif op == ">=":
-                    df_filtered = df_filtered[series >= float(val)]
-                elif op == "<=":
-                    df_filtered = df_filtered[series <= float(val)]
-                elif op in ["==", "="]:
-                    if pd.api.types.is_numeric_dtype(series):
-                        df_filtered = df_filtered[series == float(val)]
-                    else:
-                        df_filtered = df_filtered[series.astype(str).str.strip().str.lower() == str(val).strip().lower()]
-                elif op == "contient":
-                    df_filtered = df_filtered[series.astype(str).str.contains(str(val), case=False, na=False)]
-
-            except:
-                continue
-
-        return df_filtered
-
-    # --- INTERFACE MINIMALE
-    query = st.text_input("Saisir votre requête en langage naturel")
-
     if query:
-        with st.spinner("Analyse de la requête..."):
-            conditions = get_conditions(query)
-            st.code(json.dumps(conditions, ensure_ascii=False, separators=(',', ':')), language="json")
+        conditions = get_conditions(query)
+        st.info(f"Conditions extraites : {conditions}")
 
+        filtered = apply_filters(df, conditions)
+        st.success(f"{len(filtered)} lignes trouvées après filtrage.")
 
-            if conditions:
-                filtered = apply_filters(df, conditions)
+        st.dataframe(filtered, use_container_width=True)
 
-                if not filtered.empty:
-                    st.dataframe(filtered, use_container_width=True)
+        if not filtered.empty:
+            st.header("3 - Télécharger les résultats en Excel")
 
-                    output = BytesIO()
-                    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                        filtered.to_excel(writer, index=False)
+            output = BytesIO()
+            with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                filtered.to_excel(writer, index=False, sheet_name='Résultats_Filtrés')
 
-                    st.download_button(
-                        "📥 Télécharger les résultats",
-                        output.getvalue(),
-                        file_name="resultats_filtres.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                    )
-                else:
-                    st.warning("Aucun résultat trouvé.")
+            output.seek(0)
+
+            st.download_button(
+                "Télécharger Excel",
+                output,
+                file_name="resultats_filtres.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
 else:
-    st.info("Veuillez importer un fichier Excel.")
+    st.info("Veuillez importer un fichier Excel pour commencer.")
