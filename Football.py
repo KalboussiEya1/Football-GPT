@@ -9,14 +9,14 @@ from rapidfuzz import process, fuzz
 # --- CONFIGURATION DE LA PAGE
 st.set_page_config(
     layout="wide",
-    page_title="Filtrage intelligent des données Excel avec IA"
+    page_title="Filtrage intelligent des joueurs"
 )
 
 # --- CRÉER LE CLIENT OPENAI
 client = OpenAI(api_key=st.secrets["openai"]["api_key"])
 
 # --- INTERFACE
-st.title("Analyse intelligente de vos données Excel")
+st.title("Analyse intelligente des joueurs")
 
 uploaded_file = st.file_uploader("1 - Importer votre fichier Excel", type=["xlsx"])
 
