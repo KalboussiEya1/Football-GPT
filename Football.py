@@ -48,7 +48,22 @@ def apply_filters(df, conditions):
     df_filtered = df.copy()
     colnames = list(df.columns)
 
+    # Dictionnaire de correspondance des opérateurs
+    operator_map = {
+        "=": "==",
+        "==": "==",
+        "!=": "!=",
+        ">": ">",
+        "<": "<",
+        ">=": ">=",
+        "<=": "<=",
+        "contient": "contient"
+    }
+
     for col, op, val in conditions:
+        # Normaliser l’opérateur
+        op = operator_map.get(op.strip(), op)
+
         # Correspondance du nom de colonne
         col_matched = next((c for c in colnames if c.lower().strip() == col.lower().strip()), None)
         if not col_matched:
@@ -60,7 +75,7 @@ def apply_filters(df, conditions):
 
         try:
             # Correction de la valeur si applicable
-            if op.lower() in ["==", "!=", "contient"] and df_filtered[col_matched].dtype == object:
+            if op in ["==", "!=", "contient"] and df_filtered[col_matched].dtype == object:
                 unique_vals = df_filtered[col_matched].dropna().unique()
                 corrected_val = get_best_value_match(val, unique_vals)
                 if corrected_val != val:
@@ -69,7 +84,7 @@ def apply_filters(df, conditions):
 
             if op in [">", "<", ">=", "<=", "==", "!="]:
                 df_filtered = df_filtered.query(f"`{col_matched}` {op} @val")
-            elif op.lower() == "contient":
+            elif op == "contient":
                 df_filtered = df_filtered[df_filtered[col_matched].astype(str).str.contains(str(val), case=False, na=False)]
             else:
                 st.warning(f"Opérateur inconnu : {op}")
@@ -77,6 +92,7 @@ def apply_filters(df, conditions):
             st.warning(f"Erreur lors du filtrage sur '{col_matched}' : {e}")
 
     return df_filtered
+
 
 
 # --- TRAITEMENT PRINCIPAL
