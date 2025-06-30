@@ -54,7 +54,7 @@ def apply_filters(df, conditions):
                 unique_vals = df_filtered[col_matched].dropna().unique()
                 corrected_val = get_best_value_match(val, unique_vals)
                 if corrected_val != val:
-                    st.info(f"Correction de la valeur : '{val}' → '{corrected_val}'")
+                    
                     val = corrected_val
 
             if op in [">", "<", ">=", "<=", "==", "!="]:
@@ -130,7 +130,7 @@ if uploaded_file:
                 )
 
     with tab2:
-        st.subheader("2 - Filtrage manuel via interface graphique")
+        
 
         df_manual = df.copy()
         numeric_cols = df_manual.select_dtypes(include=["int64", "float64"]).columns
