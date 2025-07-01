@@ -73,7 +73,7 @@ if uploaded_file:
     df = pd.read_excel(uploaded_file)
     st.success(f"Données chargées : {df.shape[0]} lignes | {df.shape[1]} colonnes")
 
-    tab1, tab2 = st.tabs(["🔍 Filtrage intelligent", "🛠️ Filtrage manuel"])
+    tab1, tab2 = st.tabs(["Filtrage intelligent", "Filtrage manuel"])
 
     with tab1:
         PROMPT_TEMPLATE = f"""
